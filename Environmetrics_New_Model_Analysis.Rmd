@@ -1,0 +1,1273 @@
+---
+title: "Environmentrics_New_Analysis"
+author: "Ujjal"
+date: "June 23, 2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load required libraries
+
+```{r, echo=TRUE}
+library(car)
+library(MASS)
+library(sqldf)
+library(glmnet)
+library(ggplot2)
+library(scales)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(mnormt)
+library(mcmc)
+library(coda)
+library(matrixcalc)
+library(matlib)
+library(BayesianTools)
+library(PrevMap)
+library(invgamma)
+library(Amelia)
+```
+
+
+
+## SEPERATE FROM HERE
+
+
+## Bayesian modeling of Conflict as a function of extreme temperature. 
+
+#### We can start from here. The first step is to load the data again such that this part can be separate from the data cleaning part once d6 is saved and stored. 
+
+```{r, echo=TRUE}
+load("Final_Data_File.RData")
+```
+
+#### Step 1. Specification of the data model given a latent process $\mu_{i,t}$
+
+Let $Y_{i,t}$ be the number of conflicts observed at country $i$ at time $t$. We first specify the data model given the latent process $\mu_{i,t}$ signifying the risk of conflict for country $i$ at time $t$. The idea is that the observed data is one manifestation of potentially many different possible manifestations of the underlying risk of conflict. Accordingly, the number of observed conflict events follows a Negative Binomial distribution as
+
+\begin{align}
+\left[Y_{i,t} | \mu_{i,t} \right]\sim \text{NegBinom}(r_t, p_{i,t})
+\end{align}
+
+such that
+
+\begin{align}
+\mathrm{E}(Y_{i,t}) = \left( 1 - p_{i,t} \right)^{-1} p_{i,t} r_t = \mu_{i,t}.
+\end{align}
+
+This gives, 
+
+\begin{align}
+p_{i,t} = \frac{\mu_{i,t}}{r_t + \mu_{i,t}}.
+\end{align}
+
+The dynamics of the latent process $\mu_{i,t}$ as a function of observed variables constraints the parameter $p_{i,t}$ given $r_t$. 
+
+**Question**. Should $r_t$ depend on time and not depend on $i$, since the shape of the Negative Binomial distribution depends on $r_t$, the number of failures observed before $Y_{i,t}$ successes, or should it just depend on $i$, i.e, $r_i$? 
+
+It is probably not reasonable for all countries to have the same shape of the distribution at any time, rather it may be more reasonable that a country has the same shape of the distribution of the latent process at any time, particularly because the time-period is not too long. The underlying socio-economic and political drivers for the latent process may not shift too much over these $13$ years of observations. If this is true, the the data model will be 
+
+
+\begin{align}
+\left[Y_{i,t} | \mu_{i,t} \right]\sim \text{NegBinom}(r_i, p_{i,t})
+\end{align}
+
+such that
+
+\begin{align}
+\mathrm{E}(Y_{i,t}) = \left( 1 - p_{i,t} \right)^{-1} p_{i,t} r_i = \mu_{i,t}.
+\end{align}
+
+
+This will probably make the estimation task simpler, since the dependence across countries at any time will not be through the latent risk of conflict, but through the Gaussian process alone in the next step. 
+
+
+#### Gaussian process without the covariates
+
+Will add the covariates later. In this step, I assume that we know the mean vectors, and given the mean vectors I setup the Gaussian process as follows, 
+
+\begin{align}
+\mu_{*,t} &\sim GP\left(\eta_t, K_{1,\alpha_1}\right) \\
+\eta_t &= \beta_0 + \Gamma\times \left(\mu_{*,t-1} - \eta_{t-1}\right).
+\end{align}
+
+At this moment I code the covariance function as a squared exponential covariance. I will replace with a matern covariance later. The squared covariance function given by
+
+\begin{aligned}
+K_{1,\alpha_1}(i,j) &= \begin{cases}
+      \sigma_1^2 \exp\left( - \frac{d_{ij}^2}{\rho} \right), \text{ if }i\ne j\\
+      \sigma_{2i}^2, \text{ if }i=j.
+      \end{cases}
+\end{aligned}
+
+
+
+```{r, echo=TRUE}
+ExponentialCOV = function(x,y,sigma,rho){
+  d2 = sum((x-y)^2)
+  return(sigma^2*exp(-d2/(rho^2)))
+}
+```
+
+#### The following function returns a Gaussian likelihood given a mean vector, and a multivariate data vector. 
+
+
+```{r, echo=TRUE}
+Gaussian = function(y, eta, Sigma, rho){
+  n = length(y)
+  #ParVec = matrix(rep(Sigma1^2,n^2), nrow = n, ncol = n, byrow = TRUE)
+  #ParVec = ParVec + diag(Sigma2^2) - diag(rep(Sigma1^2,n))
+  #CovMat = ParVec * exp(-(((y%*%t(rep(1,n)))-(rep(1,n)%*%t(y)))^2)/(rho^2)) + diag(rep(1,n))
+  #print(is.positive.definite(CovMat))
+  CovMat = (((y%*%t(rep(1,n)))-(rep(1,n)%*%t(y)))^2) 
+  VarCovMat = matern.kernel(CovMat, kappa = Sigma, rho = rho)
+  if(!is.positive.definite(VarCovMat))return(-Inf)
+  p = dmnorm(y, mean = eta, varcov = VarCovMat, log = TRUE)
+  #p = -1/2*t(y-eta)%*%Ginv(CovMat)%*%(y-eta)
+  return(p)
+}
+```
+
+
+#### Given a vector of $y$ vectors, compute the Gaussian process liklelihood.
+
+The parameters required re the following:
+
+1. Given $\Gamma$ and $\eta_0$ the rest of the mean vectors are known. 
+
+2. So we start from time $t=0$ and iteratively compute the log-likelihoods.
+
+```{r, echo=TRUE}
+GaussianTS = function(Y, Gamma, eta0, Sigma, rho){
+  n = dim(Y)[1]
+  T = dim(Y)[2]
+  ll = Gaussian(Y[,1], eta0, Sigma, rho)
+  etat = eta0
+  for(t in 2:T){
+    etat = etat + as.numeric(diag(Gamma)%*%(Y[,t-1]-etat))
+    ll = ll + Gaussian(Y[,t], etat, Sigma, rho)
+  }
+  ll = ll + dmnorm(Gamma, mean = rep(0,n), varcov = diag(rep(1,n))) + 
+        dmnorm(eta0, mean = rep(0,n), varcov = diag(rep(1,n))) +
+        dnorm(Sigma, mean = 0, sd = 1) +
+        dnorm(rho, mean = 0, sd = 1)
+  return(ll)
+}
+```
+
+
+
+#### Test the above two functions. 
+
+1. Generate a multivariate normal vector. 
+2. Compute the log-likelihood using the functions. 
+
+```{r, echo=TRUE}
+n = 20
+S1 = 0.5
+S = matrix(rep(S1,n^2), ncol = n, nrow = n) + diag(rep(S1,n))
+mu = runif(n)
+Y = t(rmnorm(100,mean = mu, varcov = S))
+Gaussian(Y[,1],mu,0.5,0.5)
+Gamma = rep(0.5,n)
+GaussianTS(Y, Gamma, mu, 0.5,0.5)
+```
+
+## Retrieve the parameters mu, S1, and S2 using MCMC to check the Gaussian Process
+
+I use **mcmc** and **coda** to setup the MCMC using Metropolis-Hastings algorithm. 
+
+#### Helper function to parse the parameter vector and call gaussian process function
+
+```{r, echo=TRUE}
+HelperParse = function(theta, Y){
+  n = dim(Y)[1]
+  Gamma = theta[1:n]
+  mu = theta[(n+1):(2*n)]
+  Sigma = theta[2*n+1]
+  #Sigma2 = theta[(2*n+2):(3*n+1)]
+  rho = theta[2*n+2]
+  ll = GaussianTS(Y, Gamma, mu, Sigma, rho)
+  return(ll)
+}
+```
+
+
+#### Helper function to create initial values of the parameters
+
+```{r, echo=TRUE}
+InitializePars = function(n){
+  Gamma = rep(0.1,n)
+  mu = rep(0.5,n)
+  Sigma = 0.2
+  #Sigma2 = rep(1,n)
+  rho = 2
+  theta0 = c(Gamma, mu, Sigma, rho)
+  return(theta0)
+}
+```
+
+
+#### Run mcmc on the Gaussian process 
+
+```{r, echo=TRUE}
+out = metrop(HelperParse, InitializePars(n), 1000, Y = Y, debug = TRUE, scale = 0.003)
+```
+
+
+```{r, echo=TRUE}
+out1 = metrop(HelperParse, InitializePars(n), 1000, Y = Y, debug = TRUE, scale = 0.003)
+```
+
+
+#### Density plot of mcmc chains
+
+```{r, echo=TRUE}
+batches1 = mcmc(out$batch)
+batches2 = mcmc(out1$batch)
+plot(batches1)
+plot(batches2)
+```
+
+```{r, echo=TRUE}
+Estimates = apply(rbind(batches1,batches2), 2, FUN = mean)
+StandardDev = apply(rbind(batches1, batches2),2,FUN = sd)
+print(cbind(Actual = InitializePars(n), Estimated = round(Estimates,2), StdDev = round(StandardDev,4)))
+```
+
+
+## Given the vector of $y$ vectors, compute the negative binomial likelihood. 
+
+The latent generative process for the observed count model works as follows:
+
+1. Data is $Y$ and $X$ matrices. Given $\eta_0$, $\Gamma$ and $\beta$ vectors of parameters, the mean vector is generated as follows.
+
+\begin{align}
+  log(\mu_0) &= \eta_0 + \epsilon_0: \eta_0 = \beta_0 + X_0\beta, \epsilon_0\sim GP(0, K_{1,\alpha_0})\\
+  log(\mu_1) &= \eta_1 + \epsilon_1: \eta_1 = \beta_0 + X_1\beta + \Gamma \left( \mu_0 - \eta_0 \right), \epsilon_1\sim GP(0, K_{i, \alpha_1})\\ 
+  \ldots &\\
+  log(\mu_t) &= \eta_t + \epsilon_t: \eta_t = \beta_0 + X_t\beta + \Gamma \left( \mu_{t-1} - \eta_{t-1} \right), \epsilon_t\sim GP(0, K_{i, \alpha_t})\\ 
+\end{align}
+
+The kernel function $K_{1,\alpha_t}$ is the matern kernel depending on two parameters $\xi$ and $\kappa$. The matern kernel is defined as
+
+\begin{align}
+K(u; \phi, \kappa) = \frac{\Gamma(\kappa + 1)^{1/2}\kappa^{(\kappa+1)/4}u^{(\kappa-1)/2}}{\pi^{1/2}\Gamma((\kappa+1)/2)\Gamma(\kappa)^{1/2}(2\kappa^{1/2}\phi)^{(\kappa+1)/2}}\mathcal{K}_{\kappa}(u/\phi), u > 0,
+\end{align}
+
+2. Given $R$ and the mean vector $\mu_t$, the scale vector for the Negative Binomial process is computed as:
+
+\begin{align}
+  p_t = diag(R + \mu_t)^{-1}\times \mu_t.
+\end{align}
+
+3. The observed count process given $R$ and $p_t$ follows a Negative Binomial distribution as follows. 
+
+\begin{align}
+  Y_{it} \sim NB(r_i, p_{it}).
+\end{align}
+
+4. The parameters $\beta$ including $\beta_0$ follow a normal prior distribution as follows. 
+
+\begin{align}
+  \beta_i &\sim N(0, \sigma_i^2),\\
+  \sigma_i^2 &\sim InvGamma(4,4).
+\end{align}
+
+5. The parameters $\Gamma = \{\gamma_1,\ldots,\gamma_k\}$ have a horseshoe prior. 
+
+\begin{align}
+\gamma_i&\sim N(0, \tau^2\lambda_i^2)\\
+\tau&\sim\mathbb{C}(0,1)\\
+\lambda_i&\sim\mathbb{C}(0,1). 
+\end{align}
+
+6. Finally, the vector $R$ follows a Gamma prior.
+
+\begin{align}
+r_i\sim\Gamma(4,4).
+\end{align}
+
+The parameters vector that is unknown is $\Theta = \{\beta_0, \beta, \Gamma, \tau, \Lambda, \Sigma, R\}$. The length of the parameter vector is $1 + k + n + 1 + n + k + 1 + n = 3 + 2k + 3n$, where $k$ is the number of covariates, and $n$ is the number of countries in the dataset.
+
+
+#### Definition of covariance matrix
+
+\begin{align}
+u &= z[i,] - z[j,],\\
+A &:= \sigma^2(z^T)^{-1},\\
+\Sigma^2(i,j) &= \sqrt{u^T\times A \times u}
+\end{align}
+
+We encode this in the following code chunk. 
+
+```{r, echo=TRUE}
+NegBinom = function(Y, X, beta0, beta, Gamma, tau, Lambda, Sigma, R, VarCovMat){
+  n = dim(Y)[1]
+  T = dim(Y)[2]
+  k = dim(X)[2]
+  
+  #=============================================================================================
+  # Scale X -- values are widely different across different countries
+  #=============================================================================================
+  
+  X = apply(X, 2, FUN = function(x)return(scale(x)))
+  
+  #=============================================================================================
+  #Notes: Y is a matrix where each row is a country, 
+  #and each column is a time point, 
+  #and each cell is the conflict count for a country and a timepoint. 
+  # X is a matrix where each column is a covariate, staked by country
+  # and then by time, i.e., first n rows represent covariates for 
+  # time point 0 for all countries, the next n rows represents the 
+  # covariates for time point 1 for all countries and so on. 
+  # Therefore, there are n x T rows and k columns.
+  # beta0 is a scalar - intercept term of mean vector.
+  # beta is a vector of length k - slope terms for the mean vector for the covariates.
+  # Gamma is a vector of length n - the slope terms for country lags in the mean.
+  # tau is a scalar - global parameter for the horseshoe prior.
+  # Lambda is a vector of length n - local country specific parameters for the horseshoe prior.
+  # Sigma is a vector of length k + 1 - variance parameters for the normal priors of beta vector.
+  # R is a vector of length n - the shape parameter for the negative binomial distribution. 
+  # xi is a scalar - parameter for the matern kernel.
+  # kappa is a scalar - parameter for the matern kernel. 
+  # dVar is the diaginal variance vector
+  #==============================================================================================
+  
+  # Checks for the dimensions of the inputs 
+  if(dim(X)[1] != n*T){
+    print("Non-conforming dimension of the X matrix.")
+    return(NA)
+  }
+  if(length(beta) != k){
+    print("Beta vector length is not correct.")
+    return(NA)
+  }
+  if(length(Gamma) != n){
+    print("Gamma vector length is not correct.")
+    return(NA)
+  }
+  if(length(Lambda) != n){
+    print("Lambda vector length is not correct.")
+    return(NA)
+  }
+  if(length(Sigma) != k+1){
+    print("Sigma vector length is not correct.")
+    return(NA)
+  }
+  if(length(R) != n){
+    print("R vector length is not correct.")
+    return(NA)
+  }
+  
+  # Generate the mean vector for time zero
+  #------------------------------------------------
+  ## Step 1.
+  ## Compute the variance covariance matrix with matern kernel
+  ##Z = t(apply(Y, 1, FUN = function(x)return(x/sqrt(sum(x^2)))))
+  ##A = solve(var(Z) + diag(rep(1,T)))
+  ##CovMat = matrix(nrow = n, ncol = n)
+  ##for(i in 1:n){
+  ##  for(j in 1:n){
+  ##    CovMat[i,j] = sqrt((t(Z[i,]-Z[j,])) %*% A %*% (Z[i,]-Z[j,]))
+  ##  }
+  ##}
+  #CovMat[i,j] = sqrt(sum((Z[i,]-Z[j,])^2))
+  ## First column of the response matrix
+  y = Y[,1]
+  ## Distance matrix for the response vector
+  ##CovMat = (abs(((y)%*%t(rep(1,n)))-(rep(1,n)%*%t((y))))) 
+  ## Matern kernel varaince covariance matrix
+  ##VarCovMat = matern.kernel(CovMat, kappa = kappa, rho = xi) 
+  ##for(j in 1:n){
+  ##  VarCovMat[j,j] = dVar[j]
+  ##}
+  ## Check if the kernel matrix is correct
+  if(!is.positive.definite(VarCovMat))return(-Inf) 
+  ## Mean of the Gaussian process
+  eta0 = rep(beta0, n) + X[c(1:n),]%*%beta
+  ## Mean vector for the negative binomial distribution
+  lmu0 = rmnorm(1, mean = eta0, varcov = VarCovMat)
+  mu0 = exp(lmu0)
+  
+  ## Step 2. 
+  ## Generate the scale parameter for the negative binomial distribution
+  p0 = solve(diag(R + mu0))%*%mu0
+  
+  ## Log likelihood of the negative binomial distribution for t = 0
+  ll = 0
+  for(j in 1:n){
+    ll = ll + log(dnbinom(y[j], R[j], p0[j]) + 10^(-100))
+  }
+  ## Reset the initial values for iteration
+  lmut = lmu0
+  etat = eta0
+  
+  ## Log likelihood of the negative binomial distribution for t = 2:T
+  for(t in 2:T){
+    y = Y[,t]
+    ##CovMat = (((scale(y)%*%t(rep(1,n)))-(rep(1,n)%*%t(scale(y))))^2) 
+    ##VarCovMat = matern.kernel(CovMat, kappa = kappa, rho = xi) + diag(rep(0.01,n))
+    etat = rep(beta0, n) + diag(Gamma)%*%(lmut - etat)  + X[c(((t-1)*n+1):(t*n)),]%*%beta
+    lmut = rmnorm(1, mean = etat, varcov = VarCovMat)
+    mut = exp(lmut)
+    pt = solve(diag(R + mut))%*%mut
+    for(j in 1:n){
+      ll = ll + log(dnbinom(y[j], R[j], pt[j]) + 10^(-100))
+    }
+  }
+  
+  ## Add the prior likelihoods
+  #### Add the prior likelihood for R
+  for(j in 1:n){
+    ll = ll + dgamma(R[j], shape = 4, rate = 4, log = TRUE)
+  }
+  #### Add the prior likelihood for beta0 and beta
+  ll = ll + dnorm(beta0, mean = 0, sd = sqrt(Sigma[1]^2), log = TRUE) +
+    dinvgamma(Sigma[1]^2,shape = 4, rate = 4, log = TRUE)
+  for(j in 1:k){
+    ll = ll + dnorm(beta[j], mean = 0, sd = sqrt(Sigma[j+1]^2), log = TRUE) +
+    dinvgamma(Sigma[j+1]^2,shape = 4, rate = 4, log = TRUE)
+  }
+  #### Add the prior likelihood for Gamma parameters
+  for(j in 1:n){
+    ll = ll + dnorm(Gamma[j], mean = 0, sd = sqrt((tau^2) * (Lambda[j]^2)), log = TRUE) + log(1/(1+Lambda[j]^2))
+  }
+  ll = ll + log(1/(1+tau^2))
+  
+  return(ll)
+}
+```
+
+
+#### Helper function to help run the mcmc
+
+```{r, echo=TRUE}
+HelperParseFinal = function(Theta, Y, X, VarCovMat){
+  n = dim(Y)[1]
+  k = dim(X)[2]
+  beta0 = Theta[1]
+  beta = Theta[2:(k+1)]
+  Gamma = Theta[(k+2):(k+n+1)]
+  tau = Theta[k+n+2]
+  Lambda = Theta[(k+n+3):(k+2*n+2)]
+  Sigma = Theta[(k+2*n+3):(2*k+2*n+3)]
+  R = Theta[(2*k+2*n+4):(2*k+3*n+3)]
+  ll = NegBinom(Y = Y, X = X, beta0, beta, Gamma, 
+         tau, Lambda, Sigma, R, 
+         VarCovMat)
+  return(ll)
+}
+```
+
+#### Check of the full log-likelihood function
+
+```{r, echo=TRUE}
+n = 200
+T = 1500
+Y = cbind(rpois(n, 10))
+for(i in 1:(T-1)){
+  Y = cbind(Y, rpois(n,10))
+}
+#Y = cbind(rpois(n, 10), rpois(n,10),  rpois(n,10),  rpois(n,10), 
+#          rpois(n, 10), rpois(n,10),  rpois(n,10),  rpois(n,10))
+X = cbind(rnorm(n*T), rnorm(n*T), rnorm(n*T))
+#NegBinom(Y = Y, X = X, beta0 = 0.1, beta = c(0.1, 0.1, 0.1), Gamma = rep(0.1, n), 
+#         tau = 1, Lambda = rep(0.1, n), Sigma = c(0.5, 0.5, 0.5, 0.5), R = rep(10, n), 
+#         xi = 0.5, kappa = 0.5, dVar = rep(1,n))
+beta0 = 0.1
+beta = c(0.1, 0.1, 0.1)
+Gamma = rep(0.1, n)
+tau = 1
+Lambda = rep(0.1, n)
+Sigma = c(0.5, 0.5, 0.5, 0.5)
+R = rep(10, n)
+xi = 1.1 
+kappa = 0.75 
+dVar = rep(1,n)
+Theta = c(beta0, beta, Gamma, tau, Lambda, Sigma, R)
+#t = Sys.time()
+#HelperParseFinal(Theta, Y, X, xi, kappa, dVar)
+#print(Sys.time() - t)
+```
+
+#### Try MCMC trial run with synthetic data
+
+```{r, echo=TRUE}
+#Compute the variance covariance matrix
+Z = t(apply(Y, 1, FUN = function(x)return(x/sqrt(sum(x^2)))))
+  A = solve(var(Z) + diag(rep(1,T)))
+  CovMat = matrix(nrow = n, ncol = n)
+  for(i in 1:n){
+    for(j in 1:n){
+      CovMat[i,j] = sqrt((t(Z[i,]-Z[j,])) %*% A %*% (Z[i,]-Z[j,]))
+    }
+  }
+VarCovMat = matern.kernel(CovMat, kappa = kappa, rho = xi) 
+  for(j in 1:n){
+    VarCovMat[j,j] = dVar[j]
+  }
+
+t = Sys.time()
+out = metrop(HelperParseFinal, Theta, 10, Y = Y, X = X, VarCovMat, debug = TRUE, scale = 0.1)
+print(Sys.time()-t)
+t=Sys.time()
+out1 = metrop(HelperParseFinal, Theta, 10, Y = Y, X = X, VarCovMat, debug = TRUE, scale = 0.1)
+print(Sys.time()-t)
+batches1 = mcmc(out$batch)
+batches2 = mcmc(out1$batch)
+plot(batches1)
+plot(batches2)
+```
+
+
+#### Suit the data to the mcmc function by seperating the response, converting into a matrix and stacking the X matrix in the order required. 
+
+In this section, we prepare the data for the final estimation of the proposed model. We conduct the follwoing transformations:
+
+1. Convert the $Y$ vector to the $Y$ matrix.
+2. Organize the X matrix.
+3. Generate the initial values by simple regression. 
+
+```{r, echo=TRUE}
+colnames(d6)
+```
+
+#### Material Conflict Model
+
+#### Remove Timor_Leste -- has too many missing values
+
+```{r, echo=TRUE}
+ind = which(d6$country == "Timor-Leste")
+d6 = d6[-ind,]
+```
+
+#### Only select yesrs after 2004 (inclusive) -- trade variables are available from 2004
+
+```{r, echo=TRUE}
+ind = which(d6$year >= 2004)
+d6 = d6[ind,]
+```
+
+
+
+
+#### Check for the consistency of the variables.. 
+
+```{r, echo=TRUE}
+d6$MonthIndex = (d6$year - min(d6$year))*12 + d6$month
+d7 = sqldf("SELECT MonthIndex, country, mat_conf from d6
+              ORDER BY country, MonthIndex")
+d8 = reshape(d7, idvar = "country", timevar = "MonthIndex", direction = "wide")
+head(d8)
+colnames(d8) = gsub("mat_conf.", "Month_", colnames(d8))
+write.csv(d8, "Y_Matrix.csv", quote = FALSE, row.names = FALSE)
+```
+
+
+#### Check missingness of the explanatory variables
+
+```{r, echo=TRUE}
+Missingness = apply(d6[,c(36:80)], 2, FUN = function(x)return(length(na.omit(x))/length(x)))
+sort(Missingness)
+```
+
+#### Check variation in the explanatory variables
+
+```{r, echo=TRUE}
+VarEst = apply(d6[,c(36:80)], 2, FUN = function(x)return(sd(na.omit(x))/abs(mean(na.omit(x)))))
+sort(VarEst)
+```
+
+#### Create X Matrix
+
+```{r, echo=TRUE}
+X = sqldf("SELECT ExtremePositiveTemp, al_language2000, al_religion2000, al_ethnic2000, undp_hdi,
+                    AgriculturalProductsImports, 
+                    MANUFACTUREDPRODUCTSImports, TotalCommodityImports FROM d6")
+X$AgriculturalProductsImports = log(X$AgriculturalProductsImports+1)
+X$MANUFACTUREDPRODUCTSImports = log(X$MANUFACTUREDPRODUCTSImports+1)
+X$TotalCommodityImports = log(X$TotalCommodityImports+1)
+X = as.matrix(X)
+Y = d8[,-1]
+Y = as.matrix(round(Y,0))
+```
+
+
+#### Initialize 
+
+
+```{r, echo=TRUE}
+n = dim(Y)[1]
+T = dim(Y)[2]
+k = dim(X)[2]
+beta0 = 1.3
+beta = c(0.4, 0.7, -0.1, 0.1, -1.3, 0.1, 0.1, 0.1)
+Gamma = rep(0.1, n)
+tau = 1
+Lambda = rep(0.1, n)
+Sigma = rep(0.5, k+1)
+R = rep(10, n)
+xi = 1.1 
+kappa = 0.5 
+dVar = rep(1,n)
+Theta = c(beta0, beta, Gamma, tau, Lambda, Sigma, R)
+```
+
+
+#### Try MCMC  run with real data
+
+```{r, echo=TRUE}
+Z = t(apply(Y, 1, FUN = function(x)return(x/sqrt(sum(x^2)))))
+  A = solve(var(Z) + diag(rep(1,T)))
+  CovMat = matrix(nrow = n, ncol = n)
+  for(i in 1:n){
+    for(j in 1:n){
+      CovMat[i,j] = sqrt((t(Z[i,]-Z[j,])) %*% A %*% (Z[i,]-Z[j,]))
+    }
+  }
+VarCovMat = matern.kernel(CovMat, kappa = kappa, rho = xi) 
+  for(j in 1:n){
+    VarCovMat[j,j] = dVar[j]
+  }
+```
+
+
+```{r, echo=TRUE}
+t = Sys.time()
+out = metrop(HelperParseFinal, Theta, 5000, Y = Y, X = X, VarCovMat = VarCovMat, debug = TRUE, scale = 0.01)
+print(Sys.time()-t)
+t=Sys.time()
+#out1 = metrop(HelperParseFinal, Theta, 20000, Y = Y, X = X, VarCovMat = VarCovMat, debug = TRUE, scale = 0.01)
+print(Sys.time()-t)
+batches1 = mcmc(out$batch)
+#batches2 = mcmc(out1$batch)
+plot(batches1)
+#plot(batches2)
+#mcmcBatch = list(batches1, batches2)
+save(batches1, file = "MCMC_Batches_V8.RData")
+```
+
+
+Summarize the chains. 
+
+```{r, echo=TRUE}
+#batch = rbind(out$batch, out1$batch)
+batch = out$batch
+Summarize = function(x){
+  n = length(x)
+  x = sort(x, decreasing = FALSE)
+  l = x[floor(0.025*n)]
+  m = x[floor(0.5*n)]
+  u = x[ceiling(0.975*n)]
+  me = mean(x)
+  ss = sd(x)
+  b = matrix(nrow = 1, ncol = 6)
+  p = length(which(x<=0))/length(x)
+  colnames(b) = c("mean", "sd", "l2.5", "median", "u97.5", "P(Par.<= 0)")
+  b[1,] = c(me,ss,l,m,u,p)
+  return(b)
+}
+SummarizeAll = function(batch){
+  k = dim(batch)[2]
+  for(i in 1:k){
+    if(i == 1)
+      summ = Summarize(batch[,i])
+    else 
+      summ = rbind(summ, Summarize(batch[,i]))
+  }
+  return(summ)
+}
+Table = SummarizeAll(batch)
+k = dim(X)[2]
+TableSumm = round(Table[c(1:(k+1)),],4)
+row.names(TableSumm) = c("(Intercept)", colnames(X))
+print(TableSumm)
+print("==============================================")
+xtable(TableSumm)
+```
+
+
+
+#### Uniform prior for Kappa and Rho. 
+
+```{r, echo=TRUE}
+NegBinom = function(Y, X, beta0, beta, Gamma, tau, Lambda, Sigma, R, kappa, xi, dVar){
+  n = dim(Y)[1]
+  T = dim(Y)[2]
+  k = dim(X)[2]
+  
+  #=============================================================================================
+  # Scale X -- values are widely different across different countries
+  #=============================================================================================
+  
+  X = apply(X, 2, FUN = function(x)return(scale(x)))
+  
+  #=============================================================================================
+  #Notes: Y is a matrix where each row is a country, 
+  #and each column is a time point, 
+  #and each cell is the conflict count for a country and a timepoint. 
+  # X is a matrix where each column is a covariate, staked by country
+  # and then by time, i.e., first n rows represent covariates for 
+  # time point 0 for all countries, the next n rows represents the 
+  # covariates for time point 1 for all countries and so on. 
+  # Therefore, there are n x T rows and k columns.
+  # beta0 is a scalar - intercept term of mean vector.
+  # beta is a vector of length k - slope terms for the mean vector for the covariates.
+  # Gamma is a vector of length n - the slope terms for country lags in the mean.
+  # tau is a scalar - global parameter for the horseshoe prior.
+  # Lambda is a vector of length n - local country specific parameters for the horseshoe prior.
+  # Sigma is a vector of length k + 1 - variance parameters for the normal priors of beta vector.
+  # R is a vector of length n - the shape parameter for the negative binomial distribution. 
+  # xi is a scalar - parameter for the matern kernel.
+  # kappa is a scalar - parameter for the matern kernel. 
+  # dVar is the diaginal variance vector
+  #==============================================================================================
+  
+  # Checks for the dimensions of the inputs 
+  if(dim(X)[1] != n*T){
+    print("Non-conforming dimension of the X matrix.")
+    return(NA)
+  }
+  if(length(beta) != k){
+    print("Beta vector length is not correct.")
+    return(NA)
+  }
+  if(length(Gamma) != n){
+    print("Gamma vector length is not correct.")
+    return(NA)
+  }
+  if(length(Lambda) != n){
+    print("Lambda vector length is not correct.")
+    return(NA)
+  }
+  if(length(Sigma) != k+1){
+    print("Sigma vector length is not correct.")
+    return(NA)
+  }
+  if(length(R) != n){
+    print("R vector length is not correct.")
+    return(NA)
+  }
+  
+  # Generate the mean vector for time zero
+  #------------------------------------------------
+  ## Step 1.
+  ## Compute the variance covariance matrix with matern kernel
+  Z = t(apply(Y, 1, FUN = function(x)return(x/sqrt(sum(x^2)))))
+  A = solve(var(Z) + diag(rep(1,T)))
+  CovMat = matrix(nrow = n, ncol = n)
+  for(i in 1:n){
+    for(j in 1:n){
+      CovMat[i,j] = sqrt((t(Z[i,]-Z[j,])) %*% A %*% (Z[i,]-Z[j,]))
+    }
+  }
+  #CovMat[i,j] = sqrt(sum((Z[i,]-Z[j,])^2))
+  ## First column of the response matrix
+  y = Y[,1]
+  ## Distance matrix for the response vector
+  ##CovMat = (abs(((y)%*%t(rep(1,n)))-(rep(1,n)%*%t((y))))) 
+  ## Matern kernel varaince covariance matrix
+  VarCovMat = matern.kernel(CovMat, kappa = kappa, rho = xi) 
+  for(j in 1:n){
+    VarCovMat[j,j] = dVar[j]
+  }
+  ## Check if the kernel matrix is correct
+  if(!is.positive.definite(VarCovMat))return(-Inf) 
+  ## Mean of the Gaussian process
+  eta0 = rep(beta0, n) + X[c(1:n),]%*%beta
+  ## Mean vector for the negative binomial distribution
+  lmu0 = rmnorm(1, mean = eta0, varcov = VarCovMat)
+  mu0 = exp(lmu0)
+  
+  ## Step 2. 
+  ## Generate the scale parameter for the negative binomial distribution
+  p0 = solve(diag(R + mu0))%*%mu0
+  
+  ## Log likelihood of the negative binomial distribution for t = 0
+  ll = 0
+  for(j in 1:n){
+    ll = ll + log(dnbinom(y[j], R[j], p0[j]) + 10^(-100))
+  }
+  ## Reset the initial values for iteration
+  lmut = lmu0
+  etat = eta0
+  
+  ## Log likelihood of the negative binomial distribution for t = 2:T
+  for(t in 2:T){
+    y = Y[,t]
+    ##CovMat = (((scale(y)%*%t(rep(1,n)))-(rep(1,n)%*%t(scale(y))))^2) 
+    ##VarCovMat = matern.kernel(CovMat, kappa = kappa, rho = xi) + diag(rep(0.01,n))
+    etat = rep(beta0, n) + diag(Gamma)%*%(lmut - etat)  + X[c(((t-1)*n+1):(t*n)),]%*%beta
+    lmut = rmnorm(1, mean = etat, varcov = VarCovMat)
+    mut = exp(lmut)
+    pt = solve(diag(R + mut))%*%mut
+    for(j in 1:n){
+      ll = ll + log(dnbinom(y[j], R[j], pt[j]) + 10^(-100))
+    }
+  }
+  
+  ## Add the prior likelihoods
+  #### Add the prior likelihood for R
+  for(j in 1:n){
+    ll = ll + dgamma(R[j], shape = 4, rate = 4, log = TRUE)
+  }
+  #### Add the prior likelihood for beta0 and beta
+  ll = ll + dnorm(beta0, mean = 0, sd = sqrt(Sigma[1]^2), log = TRUE) +
+    dinvgamma(Sigma[1]^2,shape = 4, rate = 4, log = TRUE)
+  for(j in 1:k){
+    ll = ll + dnorm(beta[j], mean = 0, sd = sqrt(Sigma[j+1]^2), log = TRUE) +
+    dinvgamma(Sigma[j+1]^2,shape = 4, rate = 4, log = TRUE)
+  }
+  #### Add the prior likelihood for Gamma parameters
+  for(j in 1:n){
+    ll = ll + dnorm(Gamma[j], mean = 0, sd = sqrt((tau^2) * (Lambda[j]^2)), log = TRUE) + log(1/(1+Lambda[j]^2))
+  }
+  ll = ll + log(1/(1+tau^2))
+  #ll = ll + dgamma(kappa, 1,1, log = TRUE) + dgamma(xi, 1, 1, log = TRUE) 
+  ll = ll + log(kappa/3) + log(xi/3)
+  
+  return(ll)
+}
+```
+
+
+```{r, echo=TRUE}
+HelperParseFinal = function(Theta, Y, X, dVar){
+  n = dim(Y)[1]
+  k = dim(X)[2]
+  beta0 = Theta[1]
+  beta = Theta[2:(k+1)]
+  Gamma = Theta[(k+2):(k+n+1)]
+  tau = Theta[k+n+2]
+  Lambda = Theta[(k+n+3):(k+2*n+2)]
+  Sigma = Theta[(k+2*n+3):(2*k+2*n+3)]
+  R = Theta[(2*k+2*n+4):(2*k+3*n+3)]
+  kappa = Theta[2*k+3*n+3+1]
+  xi = Theta[2*k+3*n+3+2]
+  ll = NegBinom(Y = Y, X = X, beta0, beta, Gamma, 
+         tau, Lambda, Sigma, R, 
+         kappa, xi, dVar)
+  return(ll)
+}
+```
+
+
+```{r, echo=TRUE}
+n = dim(Y)[1]
+T = dim(Y)[2]
+k = dim(X)[2]
+beta0 = 1.3
+beta = c(0.4, 0.7, -0.1, 0.1, -1.3, 0.1, 0.1, 0.1)
+Gamma = rep(0.1, n)
+tau = 1
+Lambda = rep(0.1, n)
+Sigma = rep(0.5, k+1)
+R = rep(10, n)
+xi = 1.1 
+kappa = 0.75 
+dVar = rep(1,n)
+Theta = c(beta0, beta, Gamma, tau, Lambda, Sigma, R, kappa, xi)
+```
+
+```{r, echo=TRUE}
+t = Sys.time()
+out = metrop(HelperParseFinal, Theta, 1000, Y = Y, X = X, dVar = dVar, debug = TRUE, scale = 0.01)
+print(Sys.time()-t)
+t=Sys.time()
+#out1 = metrop(HelperParseFinal, Theta, 20000, Y = Y, X = X, VarCovMat = VarCovMat, debug = TRUE, scale = 0.01)
+print(Sys.time()-t)
+batches1 = mcmc(out$batch)
+#batches2 = mcmc(out1$batch)
+plot(batches1)
+#plot(batches2)
+#mcmcBatch = list(batches1, batches2)
+save(batches1, file = "MCMC_Batches_V9.RData")
+```
+
+
+
+```{r, echo=TRUE}
+Table = SummarizeAll(batch)
+k = dim(X)[2]
+TableSumm = round(Table[c(1:(k+1)),],4)
+row.names(TableSumm) = c("(Intercept)", colnames(X))
+print(TableSumm)
+print("==============================================")
+xtable(TableSumm)
+```
+
+
+
+## RJAGS Code for the data analysis
+
+
+
+```{r, echo=TRUE}
+library(rjags)
+N <- 1000
+x <- rnorm(N, , 5)
+
+write.table(
+    x,
+    file = 'C:/Users/ukm/Documents/example1.data',
+    row.names = FALSE,
+    col.names = FALSE
+)
+
+
+jags <- jags.model(
+    'C:/Users/ukm/Documents/example1.bug',
+    data = list(
+        'x' = x,
+        'N' = N
+    ),
+    n.chains = 4,
+    n.adapt = 100
+)
+update(jags, 1000)
+
+jags.samples(
+    jags,
+    c('mu', 'tau'),
+    1000
+)
+
+
+```
+
+
+
+```{r, echo=TRUE}
+library(rjags)
+library(coda)
+library(pscl)
+library(MASS)
+library(car)
+N <- 1000
+x11 <- rnorm(N, 0, 5)
+x12 <- rnorm(N, 0, 5)
+x21 <- rnorm(N, 0, 5)
+x22 <- rnorm(N, 0, 5)
+
+y1 <- rpois(N, 10)
+
+x <- cbind(x11, x12, x21, x22)
+
+T = 2
+K = 2
+
+
+forJags <- list(X=cbind(1,x),
+                y=y1,
+                N=N,
+                mu.beta=rep(0,5),
+                tau.beta=diag(.0001,5))
+
+
+
+jagsmodel <- jags.model(
+    'C:/Users/ukm/Documents/example2.bug',
+    data=forJags,
+    n.adapt=5e3)
+
+out <- coda.samples(jagsmodel,
+                    variable.names=c("beta","r"),
+                    n.iter=1e5,
+                    thin=5)
+
+summary(out)
+
+summary(glm.nb(y~x11+x12+x21+x22))
+
+```
+
+
+
+
+
+```{r, echo=TRUE}
+library(rjags)
+library(coda)
+library(pscl)
+library(MASS)
+library(car)
+library(PrevMap)
+library(mnormt)
+library(mcmc)
+
+N <- 1000
+x11 <- rnorm(N, 0, 5)
+x12 <- rnorm(N, 0, 5)
+x21 <- rnorm(N, 0, 5)
+x22 <- rnorm(N, 0, 5)
+
+y1 <- rpois(N, 10)
+y2 <- rpois(N, 20)
+
+x <- cbind(1, x11, x12, 1, x21, x22)
+y <- cbind(y1, y2)
+
+T = 2
+K = 3
+
+
+#----------------------------------
+#Gaussian process
+
+ Z = t(apply(y, 1, FUN = function(x)return(x/sqrt(sum(x^2)))))
+  A = solve(var(Z) + diag(rep(1,T)))
+  CovMat = matrix(nrow = N, ncol = N)
+  for(i in 1:N){
+    for(j in 1:N){
+      CovMat[i,j] = sqrt((t(Z[i,]-Z[j,])) %*% A %*% (Z[i,]-Z[j,]))
+    }
+  }
+  ## Distance matrix for the response vector
+  ##CovMat = (abs(((y)%*%t(rep(1,n)))-(rep(1,n)%*%t((y))))) 
+  ## Matern kernel varaince covariance matrix
+  kappa = 0.5
+  xi = 1.1
+  VarCovMat = matern.kernel(CovMat, kappa = kappa, rho = xi) 
+  for(j in 1:N){
+    VarCovMat[j,j] = var(y[j,])+1
+  }
+
+  lmu0 = rmnorm(T, mean = rep(0,N), varcov = diag(1,N))
+  lmu0 = rmnorm(T, mean = rep(0,N), varcov = VarCovMat)
+
+#---------------------------------------
+
+
+forJags <- list(x=x,
+                y=y,
+                N=N,
+                T=T,
+                K=K,
+                lambda = 10,
+                mu.beta=rep(0,K),
+                tau.beta=diag(.0001,K),
+                GaussProcessError = t(lmu0))
+
+jags.inits = function(){list("beta" = c(rnorm(8), rnorm(1,0.5,0.2)),
+                             "r" = rnorm(T))}
+
+jagsmodel1 <- jags.model(
+    'C:/Users/ukm/Documents/example1.bug',
+    data=forJags, 
+    n.adapt=5e3)
+
+jagsmodel2 <- jags.model(
+    'C:/Users/ukm/Documents/example1.bug',
+    data=forJags,
+    n.adapt=5e3)
+
+out1 <- coda.samples(jagsmodel1,
+                    variable.names=c("beta","r"),
+                    n.iter=1e5,
+                    thin=5)
+
+out2 <- coda.samples(jagsmodel2,
+                    variable.names=c("beta","r"),
+                    n.iter=1e5,
+                    thin=5)
+sink("Outputs-JAGS-V2.text")
+summary(out1)
+summary(out2)
+sink()
+
+#plot(out1)
+#plot(out2)
+
+#heidel.diag(out1)
+
+#raftery.diag(out1)
+
+#effectiveSize(out1)
+
+#heidel.diag(out2)
+
+#raftery.diag(out2)
+
+#effectiveSize(out2)
+
+#gelman.plot(mcmc.list(out1[[1]], out2[[1]]))
+
+```
+
+
+
+
+
+
+```{r, echo=TRUE}
+
+library(rjags)
+library(coda)
+library(pscl)
+library(MASS)
+library(car)
+library(PrevMap)
+library(mnormt)
+library(mcmc)
+
+#### Use real data to estimate the models
+library(sqldf)
+load("Final_Data_File.RData")
+dd = sqldf("SELECT year, country, month, mat_conf, al_language2000, 
+                al_religion2000, al_ethnic2000, undp_hdi, 
+                AgriculturalProductsImports, MANUFACTUREDPRODUCTSImports, 
+                TotalCommodityImports, ExtremePositiveTemp
+          FROM d6")
+dd[,c(9,10,11)] = apply(dd[,c(9,10,11)], 2, FUN = scale)
+#### Check completeness of data --- do all countries have all 
+Countries = unique(dd$country)
+for(i in 1:length(Countries)){
+  print(dim(dd[dd$country==Countries[i],])[1])
+  if(dim(dd[dd$country==Countries[i],])[1]<304){
+    print(Countries[i])
+  }
+}
+
+#### Remove Timor-Leste --- insufficient number of observations. 
+ind = which(dd$country == "Timor-Leste")
+if(length(ind)>0)dd = dd[-ind,]
+
+dd$Time = 12*(dd$year - min(dd$year))+dd$month
+dt = sqldf("SELECT * FROM dd ORDER BY country DESC, Time ASC")
+
+#### Create y and x matrix
+
+
+for(i in 1:304){
+  ind = which(dt$Time == i)
+  yt = dt$mat_conf[ind]
+  xt = dt[ind, 5:12]
+  if(i == 1){
+    y = yt
+    x = cbind(rep(1,dim(xt)[1]), xt)
+  }else{
+    y = cbind(y, yt)
+    x = cbind(x, rep(1,dim(xt)[1]), xt)
+  }
+}
+y = round(y,0)+1
+save(y, file = "JAGS_Y-V2.RData")
+save(x, file = "JAGS_X-V2.RData")
+```
+
+
+
+```{r, echo=TRUE}
+N = dim(y)[1]
+T = dim(y)[2]
+K = dim(x)[2]/T
+
+
+#----------------------------------
+#Gaussian process
+
+ 
+ Z = t(apply(y, 1, FUN = function(x)return(x/sqrt(sum(x^2)))))
+  A = solve(var(Z) + diag(rep(1,T)))
+  CovMat = matrix(nrow = N, ncol = N)
+  for(i in 1:N){
+    for(j in 1:N){
+      CovMat[i,j] = sqrt((t(Z[i,]-Z[j,])) %*% A %*% (Z[i,]-Z[j,]))
+    }
+  }
+  ## Distance matrix for the response vector
+  ##CovMat = (abs(((y)%*%t(rep(1,n)))-(rep(1,n)%*%t((y))))) 
+  ## Matern kernel varaince covariance matrix
+  kappa = 0.5
+  xi = 1.1
+  VarCovMat = matern.kernel(CovMat, kappa = kappa, rho = xi) 
+  for(j in 1:N){
+    VarCovMat[j,j] = var(y[j,])+1
+  }
+
+  #lmu0 = rmnorm(T, mean = rep(0,N), varcov = diag(1,N))
+  lmu0 = rmnorm(T, mean = rep(0,N), varcov = VarCovMat)
+
+  lmu0 = lmu0/max(abs(lmu0))
+#---------------------------------------
+
+forJags <- list(x=x,
+                y=y,
+                N=N,
+                T=T,
+                K=K,
+                lambda = 200,
+                mu.beta=rep(0,K),
+                tau.beta=diag(.0001,K),
+                GaussProcessError = t(lmu0))
+
+#parameters to monitor
+params<-c(
+"R",
+"beta")  
+#initial values
+inits <- function(){list(
+R=floor(runif(304,1,10)),
+beta = runif(9,0.1,1))}
+
+
+jagsmodel1 <- jags.model(
+    'C:/Users/ukm/Documents/example1.bug',
+    data=forJags, 
+    n.adapt=5e3)
+
+save(jagsmodel1, file = "JAGS-MODEL-1-V2.RData")
+
+jagsmodel2 <- jags.model(
+    'C:/Users/ukm/Documents/example1.bug',
+    data=forJags,
+    n.adapt=5e3)
+
+save(jagsmodel2, file = "JAGS-MODEL-2-V2.RData")
+
+
+out1 <- coda.samples(jagsmodel1,
+                    variable.names=c("beta","r"),
+                    n.iter=1e5,
+                    thin=5)
+
+save(out1, file = "CODA-MODEL-1-V2.RData")
+
+
+out2 <- coda.samples(jagsmodel2,
+                    variable.names=c("beta","r"),
+                    n.iter=1e5,
+                    thin=5)
+
+save(out2, file = "CODA-MODEL-2-V2.RData")
+
+sink("CODA-JAGS-OUTPUT-V2.txt")
+summary(out1)
+summary(out2)
+sink()
+
+plot(out1)
+plot(out2)
+
+heidel.diag(out1)
+
+raftery.diag(out1)
+
+effectiveSize(out1)
+
+heidel.diag(out2)
+
+raftery.diag(out2)
+
+effectiveSize(out2)
+
+gelman.plot(mcmc.list(out1[[1]], out2[[1]]))
+
+```
+
+
