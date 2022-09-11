@@ -1,0 +1,155 @@
+,mean,sd,0.025quant,0.5quant,0.975quant
+(Intercept),5.163,0.27,4.633,5.163,5.692
+countryAlbania,-3.823,0.215,-4.245,-3.823,-3.4
+countryAlgeria,-2.798,0.175,-3.142,-2.798,-2.454
+countryAngola,-3.747,0.14,-4.022,-3.747,-3.472
+countryArgentina,-1.614,0.19,-1.987,-1.614,-1.24
+countryArmenia,-3.685,0.227,-4.131,-3.685,-3.239
+countryAustralia,0.927,0.296,0.346,0.927,1.508
+countryAustria,-3.828,0.233,-4.286,-3.828,-3.371
+countryAzerbaijan,-2.425,0.211,-2.84,-2.425,-2.011
+countryBahrain,-3.257,0.163,-3.578,-3.257,-2.937
+countryBangladesh,-0.716,0.231,-1.169,-0.716,-0.262
+countryBelarus,-3.068,0.204,-3.468,-3.068,-2.668
+countryBelgium,-3.811,0.138,-4.082,-3.811,-3.54
+countryBenin,-3.98,0.124,-4.223,-3.98,-3.736
+countryBolivia,-4.209,0.135,-4.473,-4.209,-3.944
+countryBosnia and Herzegovina,-3.007,0.168,-3.336,-3.007,-2.677
+countryBotswana,-4.178,0.179,-4.53,-4.178,-3.826
+countryBrazil,-1.154,0.205,-1.555,-1.154,-0.752
+countryBulgaria,-3.261,0.188,-3.63,-3.261,-2.892
+countryBurkina Faso,-4.043,0.13,-4.297,-4.043,-3.788
+countryBurundi,-3.348,0.194,-3.728,-3.348,-2.969
+countryCambodia,-3.344,0.189,-3.714,-3.344,-2.974
+countryCameroon,-3.199,0.164,-3.521,-3.199,-2.876
+countryCanada,-1.462,0.179,-1.814,-1.462,-1.111
+countryCentral African Republic,-3.631,0.177,-3.979,-3.631,-3.284
+countryChad,-4.093,0.145,-4.376,-4.093,-3.81
+countryChile,-2.552,0.208,-2.96,-2.552,-2.144
+countryChina,-0.176,0.25,-0.667,-0.176,0.315
+countryColombia,-1.973,0.166,-2.298,-1.973,-1.648
+countryCongo,-3.874,0.148,-4.163,-3.874,-3.584
+countryCosta Rica,-3.623,0.193,-4.001,-3.623,-3.245
+countryCroatia,-3.441,0.189,-3.812,-3.441,-3.071
+countryCuba,-3.882,0.144,-4.165,-3.882,-3.599
+countryCyprus,-4.286,0.239,-4.754,-4.286,-3.818
+countryCzech Republic,-2.73,0.216,-3.154,-2.73,-2.305
+countryDemocratic Republic of Congo,-2.254,0.156,-2.56,-2.254,-1.949
+countryDenmark,-4.014,0.231,-4.467,-4.014,-3.56
+countryDominican Republic,-4.588,0.169,-4.92,-4.588,-4.256
+countryEcuador,-4.466,0.149,-4.758,-4.466,-4.174
+countryEgypt,-1.295,0.201,-1.69,-1.295,-0.9
+countryEl Salvador,-3.645,0.2,-4.038,-3.645,-3.253
+countryEstonia,-4.182,0.156,-4.488,-4.182,-3.876
+countryEthiopia,-2.667,0.144,-2.95,-2.667,-2.384
+countryFiji,-4.4,0.153,-4.699,-4.4,-4.101
+countryFinland,-4.505,0.219,-4.934,-4.505,-4.075
+countryFrance,-1.252,0.234,-1.71,-1.252,-0.794
+countryGabon,-4.543,0.154,-4.845,-4.543,-4.24
+countryGambia,-4.311,0.118,-4.542,-4.311,-4.081
+countryGeorgia,-1.728,0.179,-2.078,-1.728,-1.377
+countryGermany,-1.707,0.253,-2.203,-1.707,-1.21
+countryGhana,-3.242,0.184,-3.603,-3.242,-2.881
+countryGreece,-2.159,0.213,-2.576,-2.159,-1.742
+countryGuatemala,-3.145,0.125,-3.39,-3.145,-2.899
+countryGuinea,-3.915,0.101,-4.113,-3.915,-3.717
+countryGuyana,-4.476,0.237,-4.942,-4.476,-4.011
+countryHaiti,-3.299,0.235,-3.759,-3.299,-2.838
+countryHonduras,-3.58,0.199,-3.97,-3.58,-3.189
+countryHungary,-3.662,0.238,-4.129,-3.662,-3.195
+countryIndia,2.166,0.176,1.82,2.166,2.511
+countryIndonesia,-1.24,0.11,-1.456,-1.24,-1.024
+countryIran,-1.704,0.132,-1.963,-1.704,-1.445
+countryIraq,-0.341,0.169,-0.673,-0.341,-0.009
+countryIreland,-3.256,0.223,-3.694,-3.256,-2.818
+countryIsrael,-1.381,0.182,-1.737,-1.381,-1.025
+countryItaly,-2.131,0.223,-2.569,-2.131,-1.693
+countryIvory Coast,-3.124,0.166,-3.45,-3.124,-2.799
+countryJamaica,-4.298,0.204,-4.698,-4.298,-3.898
+countryJapan,-1.277,0.273,-1.813,-1.277,-0.742
+countryJordan,-4.146,0.165,-4.47,-4.146,-3.822
+countryKazakhstan,-3.164,0.154,-3.465,-3.164,-2.862
+countryKenya,-1.057,0.175,-1.399,-1.057,-0.714
+countryKuwait,-4.216,0.182,-4.573,-4.216,-3.859
+countryKyrgyzstan,-3.197,0.113,-3.417,-3.197,-2.976
+countryLatvia,-2.846,0.152,-3.145,-2.846,-2.547
+countryLebanon,-1.417,0.279,-1.964,-1.417,-0.869
+countryLiberia,-3.237,0.121,-3.474,-3.237,-3
+countryLibya,-4.003,0.18,-4.357,-4.003,-3.649
+countryLithuania,-4.112,0.179,-4.464,-4.112,-3.761
+countryMadagascar,-4.54,0.221,-4.974,-4.54,-4.106
+countryMalawi,-3.011,0.191,-3.385,-3.011,-2.636
+countryMalaysia,-1.602,0.17,-1.935,-1.602,-1.269
+countryMali,-3.794,0.122,-4.033,-3.794,-3.554
+countryMauritania,-4.655,0.126,-4.902,-4.655,-4.409
+countryMauritius,-4.18,0.18,-4.534,-4.18,-3.827
+countryMexico,-1.429,0.145,-1.712,-1.429,-1.145
+countryMontenegro,-4.604,0.185,-4.966,-4.604,-4.242
+countryMorocco,-3.341,0.143,-3.622,-3.341,-3.061
+countryMozambique,-2.867,0.159,-3.178,-2.867,-2.556
+countryMyanmar,-2.418,0.12,-2.653,-2.418,-2.183
+countryNamibia,-2.672,0.159,-2.983,-2.672,-2.361
+countryNepal,-2.709,0.113,-2.93,-2.709,-2.488
+countryNetherlands,-2.57,0.282,-3.123,-2.57,-2.016
+countryNew Zealand,-2.134,0.249,-2.622,-2.134,-1.646
+countryNicaragua,-4.252,0.175,-4.595,-4.252,-3.91
+countryNiger,-4.211,0.106,-4.42,-4.211,-4.003
+countryNigeria,0.263,0.165,-0.06,0.263,0.587
+countryNorth Korea,-3.802,0.256,-4.304,-3.802,-3.301
+countryNorway,-4.2,0.239,-4.668,-4.2,-3.732
+countryPakistan,-0.813,0.103,-1.014,-0.813,-0.612
+countryPanama,-4.637,0.126,-4.885,-4.637,-4.39
+countryPapua New Guinea,-3.791,0.2,-4.183,-3.791,-3.399
+countryParaguay,-3.765,0.223,-4.202,-3.765,-3.328
+countryPeru,-3.09,0.118,-3.321,-3.09,-2.858
+countryPhilippines,0.271,0.235,-0.19,0.271,0.732
+countryPoland,-3.771,0.219,-4.201,-3.771,-3.342
+countryPortugal,-4.331,0.236,-4.795,-4.331,-3.868
+countryRomania,-3.909,0.173,-4.248,-3.909,-3.57
+countryRussia,0.115,0.197,-0.271,0.115,0.502
+countryRwanda,-2.675,0.183,-3.033,-2.675,-2.316
+countrySaudi Arabia,-2.478,0.204,-2.878,-2.478,-2.079
+countrySenegal,-3.871,0.105,-4.077,-3.871,-3.666
+countrySerbia,-3.356,0.147,-3.644,-3.356,-3.067
+countrySierra Leone,-4.215,0.119,-4.449,-4.215,-3.981
+countrySingapore,-1.944,0.206,-2.349,-1.944,-1.54
+countrySlovakia,-3.361,0.214,-3.78,-3.361,-2.942
+countrySolomon Islands,-4.113,0.266,-4.634,-4.113,-3.592
+countrySomalia,-2.224,0.189,-2.595,-2.224,-1.854
+countrySouth Africa,-0.072,0.202,-0.467,-0.072,0.324
+countrySouth Korea,-1.203,0.292,-1.777,-1.203,-0.63
+countrySpain,-1.585,0.167,-1.912,-1.585,-1.259
+countrySri Lanka,-1.964,0.163,-2.284,-1.964,-1.644
+countrySudan,-1.527,0.108,-1.739,-1.527,-1.316
+countrySwaziland,-4.141,0.241,-4.614,-4.141,-3.668
+countrySweden,-3.761,0.237,-4.225,-3.761,-3.296
+countrySwitzerland,-3.981,0.178,-4.33,-3.981,-3.632
+countrySyria,-1.787,0.151,-2.084,-1.787,-1.491
+countryTaiwan,-1.978,0.23,-2.43,-1.978,-1.526
+countryTajikistan,-3.494,0.125,-3.74,-3.494,-3.249
+countryTanzania,-2.677,0.152,-2.976,-2.677,-2.378
+countryThailand,-0.946,0.124,-1.189,-0.946,-0.703
+countryTogo,-4.119,0.16,-4.433,-4.119,-3.805
+countryTrinidad and Tobago,-4.663,0.235,-5.124,-4.663,-4.202
+countryTunisia,-3.364,0.239,-3.832,-3.364,-2.896
+countryTurkey,-1.142,0.175,-1.484,-1.142,-0.799
+countryUganda,-1.678,0.146,-1.964,-1.678,-1.393
+countryUkraine,-1.865,0.173,-2.205,-1.865,-1.525
+countryUnited Arab Emirates,-4.134,0.124,-4.377,-4.134,-3.891
+countryUnited Kingdom,-0.473,0.273,-1.008,-0.473,0.062
+countryUnited States,1.375,0.237,0.909,1.375,1.841
+countryUruguay,-4.095,0.196,-4.478,-4.095,-3.711
+countryUzbekistan,-4.092,0.141,-4.368,-4.092,-3.816
+countryVenezuela,-2.815,0.159,-3.126,-2.815,-2.503
+countryVietnam,-2.79,0.203,-3.189,-2.79,-2.391
+countryYemen,-1.707,0.137,-1.977,-1.707,-1.438
+countryZambia,-2.699,0.168,-3.028,-2.699,-2.37
+countryZimbabwe,-1.375,0.209,-1.785,-1.375,-0.966
+ExtremePositiveTemp,0.012,0.011,-0.01,0.012,0.034
+al_language2000,-0.715,0.263,-1.231,-0.715,-0.199
+al_religion2000,-1.079,0.298,-1.663,-1.079,-0.495
+al_ethnic2000,1.178,0.342,0.507,1.178,1.849
+undp_hdi,0.286,0.203,-0.112,0.286,0.684
+log(AgriculturalProductsImports + 1),-0.002,0.002,-0.006,-0.002,0.002
+log(MANUFACTUREDPRODUCTSImports + 1),0.006,0.003,0,0.006,0.011
+log(TotalCommodityImports + 1),0.003,0.003,-0.002,0.003,0.008
